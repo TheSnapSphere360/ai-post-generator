@@ -11,9 +11,10 @@ load_dotenv()
 # Initialize OpenAI client
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
-# Authenticate with Google Sheets
+# Authenticate with Google Sheets using secrets from Streamlit
 scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
-creds = ServiceAccountCredentials.from_json_keyfile_name("service_account.json", scope)
+creds_dict = st.secrets["gcp_service_account"]
+creds = ServiceAccountCredentials.from_json_keyfile_dict(dict(creds_dict), scope)
 sheet_client = gspread.authorize(creds)
 sheet = sheet_client.open("TheSnapSphere360 Captions").worksheet("Captions")
 
