@@ -1,141 +1,114 @@
 import os
+import json
 import streamlit as st
 from openai import OpenAI
 from dotenv import load_dotenv
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
 
-# Load environment variables
 load_dotenv()
 
 # Initialize OpenAI client
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
-# Authenticate with Google Sheets using Streamlit secrets
+# Google Sheets auth with service account JSON from Streamlit secrets
 scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
 creds_dict = st.secrets["gcp_service_account"]
 creds = ServiceAccountCredentials.from_json_keyfile_dict(dict(creds_dict), scope)
 sheet_client = gspread.authorize(creds)
 
-# Google Sheet ID and worksheet name
-spreadsheet_id = "1Iw6Vn3qG-gFwYZn_fwuapHOe3-vcSToMsFYQl1y_Xvw"
-worksheet_name = "Captions"
+# Open your sheet by ID and worksheet name
+SPREADSHEET_ID = "1Iw6Vn3qG-gFwYZn_fwuapHOe3-vcSToMsFYQl1y_Xvw"
+WORKSHEET_NAME = "Captions"
 
-# Debug: List all spreadsheets the service account can access
-st.write("🔍 Sheets available to service account:")
 try:
-    available_sheets = sheet_client.openall()
-    for s in available_sheets:
-        st.write(f"📄 {s.title}")
-except Exception as e:
-    st.error(f"❌ Could not fetch sheets: {e}")
-
-# Open the sheet by ID and worksheet
-try:
-    sheet = sheet_client.open_by_key(spreadsheet_id).worksheet(worksheet_name)
+    sheet = sheet_client.open_by_key(SPREADSHEET_ID).worksheet(WORKSHEET_NAME)
 except Exception as e:
     st.error(f"❌ Error opening sheet or worksheet: {e}")
     st.stop()
 
-# Function to format captions per platform with spacing & ideal hashtag counts
-def format_caption(platform, caption, hashtags, cta):
-    # Ideal hashtag counts per platform
-    hashtag_limits = {
-        "tiktok": 7,
-        "instagram": 7,
-        "facebook": 5,
-        "twitter": 3,
-        "snapchat": 3,
-        "youtube": 0,  # YouTube Shorts exclude hashtags and CTA
-    }
+st.title("📱 AI Social Post Generator for Opus Clips")
+st.markdown("Upload a clip transcript or paste a summary. Get ready-to-post captions for all platforms.")
 
-    # Limit hashtags to ideal count for platform
-    ideal_count = hashtag_limits.get(platform.lower(), 5)
-    hashtags = hashtags.split()
-    hashtags = hashtags[:ideal_count]
-    hashtags_str = " ".join(hashtags)
+user_input = st.text_area("📝 Paste Opus Clip Transcript or Summary", height=250)
 
-    # Build formatted caption
-    if platform.lower() == "youtube":
-        # YouTube Shorts: caption only, no hashtags or CTA
-        formatted = caption.strip()
-    else:
-        formatted = (
-            caption.strip()
-            + "\n\n"
-            + hashtags_str
-            + "\n\n"
-            + cta
-        )
-    return formatted
+# Ideal hashtags counts for platforms
+IDEAL_HASHTAGS = {
+    "tiktok": 10,
+    "instagram": 20,
+    "facebook": 10,
+    "twitter": 5,
+    "snapchat": 5,
+    "youtube": 5
+}
 
-# Streamlit UI
-st.title("📲 AI Social Post Generator for Opus Clips")
-st.markdown("Upload a clip transcript or paste a summary. Get ready-to-post content for all platforms:")
+def build_caption_block(caption, hashtags, cta):
+    # Join hashtags into a single string
+    hashtags_line = " ".join(hashtags)
+    return f"{caption}\n\n{hashtags_line}\n\n{cta}"
 
-user_input = st.text_area("📝 Paste Opus Clip Transcript or Summary", height=200)
+def truncate_hashtags(hashtags_str, max_count):
+    # Split hashtags by space and keep max_count
+    tags = hashtags_str.strip().split()
+    return tags[:max_count]
 
 if st.button("✨ Generate Social Captions"):
     if not user_input.strip():
         st.warning("Please paste a transcript or summary first.")
     else:
+        system_msg = (
+            "You are a social media expert creating catchy captions for multiple platforms. "
+            "Respond ONLY with a JSON object with keys: tiktok, instagram, facebook, twitter, snapchat, youtube. "
+            "Each value should be an object with these string fields: caption, hashtags, cta. "
+            "Example:\n"
+            '{\n'
+            '  "tiktok": {"caption": "text", "hashtags": "#tag1 #tag2", "cta": "🔥 New clips daily — follow for more wild moments."},\n'
+            '  "instagram": {...},\n'
+            '  ...\n'
+            '}\n'
+            "No explanations or markdown, only JSON."
+        )
         try:
-            # Prompt for OpenAI
-            prompt = f"""
-Generate catchy, platform-optimized captions for the following platforms: TikTok, Instagram Reels, Facebook Reels, YouTube Shorts, Twitter, Snapchat.
-Use ideal hashtag counts for each platform (TikTok, Instagram: 7 hashtags; Facebook: 5; Twitter and Snapchat: 3; YouTube Shorts: none).
-Format each platform's output as JSON with keys: caption, hashtags, cta.
-Example format:
-{{
-  "tiktok": {{"caption": "...", "hashtags": "...", "cta": "..."}},
-  "instagram": {{"caption": "...", "hashtags": "...", "cta": "..."}},
-  ...
-}}
-
-Here is the clip summary/transcript:
-\"\"\"{user_input}\"\"\"
-"""
-
             response = client.chat.completions.create(
                 model="gpt-4o-mini",
                 messages=[
-                    {"role": "system", "content": "You are a social media content expert."},
-                    {"role": "user", "content": prompt}
+                    {"role": "system", "content": system_msg},
+                    {"role": "user", "content": user_input}
                 ]
             )
+            raw_content = response.choices[0].message.content.strip()
+            st.text_area("Raw OpenAI Response (for debugging)", value=raw_content, height=250)
 
-            # Parse JSON from response
-            import json
-            content = response.choices[0].message.content.strip()
-            captions_json = json.loads(content)
+            data = json.loads(raw_content)
 
-            # CTA line
             cta_line = "🔥 New clips daily — follow for more wild moments."
 
-            # Format each platform caption according to rules
-            output_rows = []
+            row = []
+            # Order of platforms and append to row for horizontal insert
             platforms_order = ["tiktok", "instagram", "facebook", "twitter", "snapchat", "youtube"]
-
             for platform in platforms_order:
-                data = captions_json.get(platform, {})
-                caption = data.get("caption", "")
-                hashtags = data.get("hashtags", "")
-                cta = data.get("cta", cta_line)
-                formatted_text = format_caption(platform, caption, hashtags, cta)
-                output_rows.append(formatted_text)
+                if platform in data:
+                    cap = data[platform].get("caption", "").strip()
+                    tags_str = data[platform].get("hashtags", "").strip()
+                    cta = data[platform].get("cta", "").strip()
+                    # Use ideal hashtags count, truncate if needed
+                    tags_list = truncate_hashtags(tags_str, IDEAL_HASHTAGS.get(platform, 10))
+                    # Build final block with proper spacing
+                    block = build_caption_block(cap, tags_list, cta)
+                    row.append(block)
+                else:
+                    row.append("")  # blank for missing platform
 
-            # Append to Google Sheet in one row horizontally
-            sheet.append_row(output_rows)
+            # Append new row horizontally
+            sheet.append_row(row)
+            st.success("✅ Captions generated and saved to Google Sheets!")
 
-            # Display success and the generated captions in one text area for copy/paste
-            st.success("✨ Captions Ready!")
+            # Show generated captions nicely
+            st.text_area("🎉 Captions Output (copy from here)", value="\n\n---\n\n".join(row), height=300)
 
-            combined_display = "\n\n---\n\n".join(
-                f"{platform.capitalize()}:\n{output_rows[i]}"
-                for i, platform in enumerate(platforms_order)
-            )
-
-            st.text_area("📝 Copy & Paste All Platforms", value=combined_display, height=400)
-
+        except json.JSONDecodeError as jde:
+            st.error(f"JSON parsing error: {jde}")
+            st.error("Raw response was:")
+            st.code(raw_content)
         except Exception as e:
-            st.error(f"⚠️ Error: {e}")
+            st.error(f"Error generating captions: {e}")
