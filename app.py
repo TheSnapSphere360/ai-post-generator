@@ -34,21 +34,33 @@ user_input = st.text_area("📝 Paste Opus Clip Transcript or Summary", height=2
 
 # Ideal hashtags counts for platforms
 IDEAL_HASHTAGS = {
-    "tiktok": 10,
-    "instagram": 20,
-    "facebook": 10,
-    "twitter": 5,
-    "snapchat": 5,
+    "tiktok": 7,
+    "instagram": 10,
+    "facebook": 5,
+    "twitter": 4,
+    "snapchat": 4,
     "youtube": 5
 }
 
+CTA_LINE = "🔥 New clips daily — follow for more wild moments."
+
 def build_caption_block(caption, hashtags, cta):
-    # Join hashtags into a single string
+    """
+    Compose final caption block:
+    Caption
+    (blank line)
+    Hashtags (all in one line)
+    (blank line)
+    CTA
+    """
     hashtags_line = " ".join(hashtags)
-    return f"{caption}\n\n{hashtags_line}\n\n{cta}"
+    # If no caption or hashtags, just return empty string
+    if not caption.strip() and not hashtags_line.strip():
+        return ""
+    return f"{caption.strip()}\n\n{hashtags_line.strip()}\n\n{cta.strip()}"
 
 def truncate_hashtags(hashtags_str, max_count):
-    # Split hashtags by space and keep max_count
+    # Split hashtags by whitespace, keep max_count hashtags
     tags = hashtags_str.strip().split()
     return tags[:max_count]
 
@@ -59,7 +71,7 @@ if st.button("✨ Generate Social Captions"):
         system_msg = (
             "You are a social media expert creating catchy captions for multiple platforms. "
             "Respond ONLY with a JSON object with keys: tiktok, instagram, facebook, twitter, snapchat, youtube. "
-            "Each value should be an object with these string fields: caption, hashtags, cta. "
+            "Each value should be an object with string fields: caption, hashtags, cta. "
             "Example:\n"
             '{\n'
             '  "tiktok": {"caption": "text", "hashtags": "#tag1 #tag2", "cta": "🔥 New clips daily — follow for more wild moments."},\n'
@@ -81,29 +93,26 @@ if st.button("✨ Generate Social Captions"):
 
             data = json.loads(raw_content)
 
-            cta_line = "🔥 New clips daily — follow for more wild moments."
-
             row = []
-            # Order of platforms and append to row for horizontal insert
+            # Platforms in order, one column each
             platforms_order = ["tiktok", "instagram", "facebook", "twitter", "snapchat", "youtube"]
             for platform in platforms_order:
                 if platform in data:
-                    cap = data[platform].get("caption", "").strip()
-                    tags_str = data[platform].get("hashtags", "").strip()
-                    cta = data[platform].get("cta", "").strip()
-                    # Use ideal hashtags count, truncate if needed
-                    tags_list = truncate_hashtags(tags_str, IDEAL_HASHTAGS.get(platform, 10))
-                    # Build final block with proper spacing
+                    cap = data[platform].get("caption", "")
+                    tags_str = data[platform].get("hashtags", "")
+                    cta = data[platform].get("cta", CTA_LINE)
+                    tags_list = truncate_hashtags(tags_str, IDEAL_HASHTAGS.get(platform, 5))
                     block = build_caption_block(cap, tags_list, cta)
                     row.append(block)
                 else:
-                    row.append("")  # blank for missing platform
+                    row.append("")  # empty if platform missing
 
-            # Append new row horizontally
+            # Append horizontally to sheet starting at row 2
             sheet.append_row(row)
+
             st.success("✅ Captions generated and saved to Google Sheets!")
 
-            # Show generated captions nicely
+            # Show user-friendly captions output separated by platform
             st.text_area("🎉 Captions Output (copy from here)", value="\n\n---\n\n".join(row), height=300)
 
         except json.JSONDecodeError as jde:
