@@ -11,41 +11,30 @@ load_dotenv()
 # Initialize OpenAI client
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
-# Authenticate with Google Sheets using secrets from Streamlit
-scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
+# Authenticate with Google Sheets using Streamlit secrets
+scope = [
+    "https://spreadsheets.google.com/feeds",
+    "https://www.googleapis.com/auth/drive"
+]
 creds_dict = st.secrets["gcp_service_account"]
 creds = ServiceAccountCredentials.from_json_keyfile_dict(dict(creds_dict), scope)
 sheet_client = gspread.authorize(creds)
 
-# Try to open target sheet and worksheet
+# Debug: List all spreadsheets the service account can access
+st.write("🔍 Sheets available to service account:")
 try:
-    sheet = sheet_client.open("TheSnapSphere360 Captions").worksheet("Captions")
+    available_sheets = sheet_client.openall()
+    for s in available_sheets:
+        st.write(f"📄 {s.title}")
 except Exception as e:
-    st.error(f"❌ Error opening sheet or worksheet: {e}")
-    st.stop()
+    st.error(f"❌ Could not fetch sheets: {e}")
 
-# Format caption helper
-def format_caption(caption, hashtags_list, platform):
-    hashtag_limits = {
-        "tiktok": 10,
-        "instagram": 15,
-        "facebook": 3,
-        "youtube_shorts": 5,
-        "twitter": 2,
-        "snapchat": 3
-    }
-    limit = hashtag_limits.get(platform.lower(), 10)
-    limited_hashtags = hashtags_list[:limit]
-    hashtags_line = " ".join(f"#{tag}" for tag in limited_hashtags)
-    
-    cta_line = "🔥 New clips daily — follow for more wild moments."
-    
-    if platform.lower() in ["tiktok", "instagram", "facebook"]:
-        formatted = f"{caption.strip()}\n\n{hashtags_line}\n\n{cta_line}"
-    else:
-        # For YouTube Shorts, Twitter, Snapchat no CTA line
-        formatted = f"{caption.strip()}\n\n{hashtags_line}"
-    return formatted
+# Open the correct spreadsheet and worksheet
+try:
+    sheet = sheet_client.open("TheSnapSphere360").worksheet("Captions")
+except Exception as e:
+    st.error(f"❌ Error opening sheet 'TheSnapSphere360' or worksheet 'Captions': {e}")
+    st.stop()
 
 # Streamlit UI
 st.title("📲 AI Social Post Generator for Opus Clips")
@@ -58,43 +47,58 @@ if st.button("✨ Generate Social Captions"):
         st.warning("Please paste a transcript or summary first.")
     else:
         try:
-            # Ask OpenAI to generate captions + hashtags for each platform in a JSON string format
-            prompt = (
-                "Generate catchy captions and hashtags for these platforms: TikTok, Instagram Reels, Facebook Reels, "
-                "YouTube Shorts, Twitter/X, Snapchat. Provide output as JSON with keys as platform names, each containing "
-                "a 'caption' string and a list 'hashtags'. Example:\n"
-                '{ "tiktok": {"caption": "...", "hashtags": ["tag1","tag2"]}, "instagram": {...}, ... }\n\n'
-                f"Content:\n{user_input}"
-            )
+            # Call OpenAI chat completion
             response = client.chat.completions.create(
                 model="gpt-3.5-turbo",
                 messages=[
-                    {"role": "system", "content": "You generate social media captions with hashtags as requested."},
-                    {"role": "user", "content": prompt}
+                    {
+                        "role": "system",
+                        "content": (
+                            "Generate catchy, platform-optimized captions for TikTok, Instagram Reels, Facebook Reels, "
+                            "YouTube Shorts, Twitter/X, and Snapchat. Add niche, viral, brand, and character-specific hashtags. "
+                            "Format each platform's output as:\n\n"
+                            "[Caption]\n\n"
+                            "[Hashtags (all in one line)]\n\n"
+                            "🔥 New clips daily — follow for more wild moments.\n\n"
+                            "YouTube Shorts should exclude hashtags and the final CTA line.\n"
+                        )
+                    },
+                    {"role": "user", "content": user_input}
                 ]
             )
-            json_text = response.choices[0].message.content.strip()
-            
-            import json
-            data = json.loads(json_text)
 
-            # Format each platform using our helper
-            formatted_captions = {}
-            for platform, details in data.items():
-                caption = details.get("caption", "")
-                hashtags = details.get("hashtags", [])
-                formatted_captions[platform] = format_caption(caption, hashtags, platform)
-
-            # Display and save horizontally in sheet (columns for each platform)
+            result = response.choices[0].message.content.strip()
             st.success("✨ Captions Ready!")
-            for platform, text in formatted_captions.items():
-                st.subheader(platform.capitalize())
-                st.text_area(f"📤 Copy & Paste for {platform.capitalize()}", value=text, height=180)
+            st.text_area("📝 Copy & Paste All Platforms", value=result, height=350)
 
-            # Save one row with platforms ordered (customize as needed)
-            platforms_order = ["tiktok", "instagram", "facebook", "youtube_shorts", "twitter", "snapchat"]
-            row_to_append = [formatted_captions.get(p, "") for p in platforms_order]
-            sheet.append_row(row_to_append)
+            # Parse result by platform and save horizontally as one row
+            # Assuming result format:
+            # [Caption]
+            #
+            # [Hashtags]
+            #
+            # CTA line (except YouTube Shorts)
+            #
+            # (then next platform...)
+
+            platforms = ["TikTok", "Instagram", "Facebook", "YouTube Shorts", "Twitter", "Snapchat"]
+
+            # Split result by double newlines between platforms (heuristic)
+            sections = [sec.strip() for sec in result.split("\n\n\n") if sec.strip()]
+
+            # Prepare a row with one cell per platform
+            row = []
+            for i, sec in enumerate(sections):
+                # Replace triple newlines inside sections by double newlines for neatness
+                cell_text = sec.replace("\n\n\n", "\n\n")
+                row.append(cell_text)
+
+            # Pad row if fewer than platforms detected
+            while len(row) < len(platforms):
+                row.append("")
+
+            # Append row horizontally
+            sheet.append_row(row)
 
         except Exception as e:
             st.error(f"⚠️ Error: {e}")
