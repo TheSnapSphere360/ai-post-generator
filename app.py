@@ -28,7 +28,7 @@ except Exception as e:
 
 # Try to open target sheet
 try:
-    sheet = sheet_client.open("TheSnapSphere360 Captions").worksheet("Captions")
+    sheet = sheet_client.open("TheSnapSphere360 Captions".strip()).worksheet("Captions".strip())
 except Exception as e:
     st.error(f"❌ Error opening sheet or worksheet: {e}")
     st.stop()
@@ -61,4 +61,3 @@ if st.button("✨ Generate Social Captions"):
 
         except Exception as e:
             st.error(f"⚠️ Error: {e}")
-
