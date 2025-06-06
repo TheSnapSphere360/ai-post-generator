@@ -11,13 +11,13 @@ load_dotenv()
 # Initialize OpenAI client
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
-# Authenticate with Google Sheets using Streamlit secrets
+# Google Sheets API setup via Streamlit secrets
 scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
 creds_dict = st.secrets["gcp_service_account"]
 creds = ServiceAccountCredentials.from_json_keyfile_dict(dict(creds_dict), scope)
 sheet_client = gspread.authorize(creds)
 
-# Debug: List all spreadsheets the service account can access
+# Debug: Show which sheets are accessible
 st.write("🔍 Sheets available to service account:")
 try:
     available_sheets = sheet_client.openall()
@@ -26,7 +26,7 @@ try:
 except Exception as e:
     st.error(f"❌ Could not fetch sheets: {e}")
 
-# Try to open the correct spreadsheet and worksheet
+# Attempt to open specific sheet and worksheet
 try:
     sheet = sheet_client.open("TheSnapSphere360").worksheet("Captions")
 except Exception as e:
@@ -47,8 +47,17 @@ if st.button("✨ Generate Social Captions"):
             response = client.chat.completions.create(
                 model="gpt-3.5-turbo",
                 messages=[
-                    {"role": "system", "content": "Generate catchy, platform-optimized captions for TikTok, Instagram Reels, Facebook Reels, YouTube Shorts, Twitter/X, and Snapchat. Add niche, viral, brand, and character-specific hashtags. Each platform's output should follow this format: \n\n[Caption]\n\n[Hashtags]\n\n🔥 New clips daily — follow for more wild moments. (only for TikTok, Instagram, Facebook)\n\nYouTube Shorts should exclude hashtags and end line.\n"},
-                    {"role": "user", "content": f"{user_input}"}
+                    {
+                        "role": "system",
+                        "content": (
+                            "Generate catchy, platform-optimized captions for TikTok, Instagram Reels, "
+                            "Facebook Reels, YouTube Shorts, Twitter/X, and Snapchat. Add niche, viral, brand, "
+                            "and character-specific hashtags. Each platform's output should follow this format:\n\n"
+                            "[Caption]\n\n[Hashtags]\n\n🔥 New clips daily — follow for more wild moments. "
+                            "(only for TikTok, Instagram, Facebook)\n\nYouTube Shorts should exclude hashtags and end line.\n"
+                        )
+                    },
+                    {"role": "user", "content": user_input}
                 ]
             )
 
