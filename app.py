@@ -17,21 +17,8 @@ creds_dict = st.secrets["gcp_service_account"]
 creds = ServiceAccountCredentials.from_json_keyfile_dict(dict(creds_dict), scope)
 sheet_client = gspread.authorize(creds)
 
-# Debug: List all spreadsheets the service account can access
-st.write("🔍 Sheets available to service account:")
-try:
-    available_sheets = sheet_client.openall()
-    for s in available_sheets:
-        st.write(f"📄 {s.title}")
-except Exception as e:
-    st.error(f"❌ Could not fetch sheets: {e}")
-
-# Try to open the spreadsheet by key (more reliable than by title)
-try:
-    sheet = sheet_client.open_by_key("1Iw6Vn3qG-gFwYZn_fwuapHOe3-vcSToMsFYQl1y_Xvw").worksheet("Captions")
-except Exception as e:
-    st.error(f"❌ Error opening sheet or worksheet: {e}")
-    st.stop()
+# Open spreadsheet and worksheet
+sheet = sheet_client.open("TheSnapSphere360").worksheet("Captions")
 
 # Streamlit UI
 st.title("📲 AI Social Post Generator for Opus Clips")
@@ -44,26 +31,41 @@ if st.button("✨ Generate Social Captions"):
         st.warning("Please paste a transcript or summary first.")
     else:
         try:
+            # Call OpenAI
             response = client.chat.completions.create(
                 model="gpt-3.5-turbo",
                 messages=[
-                    {"role": "system", "content": (
-                        "Generate catchy, platform-optimized captions for TikTok, Instagram Reels, Facebook Reels, "
-                        "YouTube Shorts, Twitter/X, and Snapchat. Add niche, viral, brand, and character-specific hashtags. "
-                        "Each platform's output should follow this format:\n\n"
-                        "[TikTok]\n[Caption]\n\n[Hashtags]\n\n🔥 New clips daily — follow for more wild moments.\n\n"
-                        "[Instagram]\n[...]\n\n[YouTube Shorts]\n[Caption only — no hashtags or final line]"
-                    )},
+                    {
+                        "role": "system",
+                        "content": (
+                            "Generate short-form video captions for the following platforms, each labeled clearly: "
+                            "TikTok, Instagram, Facebook, YouTube Shorts, Twitter, and Snapchat. Format each like this:\n\n"
+                            "**TikTok**:\n[Caption]\n\n**Instagram**:\n[Caption] ..."
+                        )
+                    },
                     {"role": "user", "content": user_input}
                 ]
             )
 
             result = response.choices[0].message.content.strip()
             st.success("✨ Captions Ready!")
-            st.text_area("📤 Copy & Paste", value=result, height=300)
+            st.text_area("📤 Copy & Paste", value=result, height=400)
 
-            # Save to Google Sheets
-            sheet.append_row([result])
+            # Parse and extract captions per platform
+            platforms = ["TikTok", "Instagram", "Facebook", "YouTube Shorts", "Twitter", "Snapchat"]
+            row_data = []
+            for platform in platforms:
+                if f"**{platform}**:" in result:
+                    part = result.split(f"**{platform}**:")[1]
+                    next_parts = [result.split(f"**{p}**:")[1] for p in platforms if f"**{p}**:" in result and result.find(f"**{p}**:") > result.find(f"**{platform}**:")]
+                    end_index = result.find(next_parts[0]) if next_parts else None
+                    caption = part[:end_index].strip() if end_index else part.strip()
+                    row_data.append(caption)
+                else:
+                    row_data.append("")
+
+            # Save to sheet horizontally
+            sheet.append_row(row_data)
 
         except Exception as e:
             st.error(f"⚠️ Error: {e}")
