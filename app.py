@@ -12,29 +12,42 @@ load_dotenv()
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
 # Authenticate with Google Sheets using Streamlit secrets
-scope = [
-    "https://spreadsheets.google.com/feeds",
-    "https://www.googleapis.com/auth/drive"
-]
+scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
 creds_dict = st.secrets["gcp_service_account"]
 creds = ServiceAccountCredentials.from_json_keyfile_dict(dict(creds_dict), scope)
 sheet_client = gspread.authorize(creds)
 
-# Debug: List all spreadsheets the service account can access
-st.write("🔍 Sheets available to service account:")
+# Try to open the correct spreadsheet and worksheet
 try:
-    available_sheets = sheet_client.openall()
-    for s in available_sheets:
-        st.write(f"📄 {s.title}")
+    sheet = sheet_client.open("TheSnapSphere360 Captions").worksheet("Captions")
 except Exception as e:
-    st.error(f"❌ Could not fetch sheets: {e}")
-
-# Open the correct spreadsheet and worksheet
-try:
-    sheet = sheet_client.open("TheSnapSphere360").worksheet("Captions")
-except Exception as e:
-    st.error(f"❌ Error opening sheet 'TheSnapSphere360' or worksheet 'Captions': {e}")
+    st.error(f"❌ Error opening sheet or worksheet: {e}")
     st.stop()
+
+# Ideal hashtag counts per platform
+IDEAL_HASHTAG_COUNTS = {
+    "tiktok": 15,
+    "instagram": 12,
+    "facebook": 8,
+    "twitter": 4,
+    "snapchat": 5,
+    "youtube": 0,  # no hashtags for YouTube Shorts
+}
+
+CTA_LINE = "🔥 New clips daily — follow for more wild moments."
+
+def format_caption(caption_text, hashtags_list, platform):
+    ideal_count = IDEAL_HASHTAG_COUNTS.get(platform, 5)
+    limited_hashtags = hashtags_list[:ideal_count]
+    hashtags_line = " ".join(limited_hashtags)
+
+    parts = [caption_text.strip(), "", hashtags_line]
+
+    if platform in ["tiktok", "instagram", "facebook"]:
+        parts.append("")
+        parts.append(CTA_LINE)
+
+    return "\n".join(parts)
 
 # Streamlit UI
 st.title("📲 AI Social Post Generator for Opus Clips")
@@ -47,58 +60,43 @@ if st.button("✨ Generate Social Captions"):
         st.warning("Please paste a transcript or summary first.")
     else:
         try:
-            # Call OpenAI chat completion
             response = client.chat.completions.create(
                 model="gpt-3.5-turbo",
                 messages=[
-                    {
-                        "role": "system",
-                        "content": (
-                            "Generate catchy, platform-optimized captions for TikTok, Instagram Reels, Facebook Reels, "
-                            "YouTube Shorts, Twitter/X, and Snapchat. Add niche, viral, brand, and character-specific hashtags. "
-                            "Format each platform's output as:\n\n"
-                            "[Caption]\n\n"
-                            "[Hashtags (all in one line)]\n\n"
-                            "🔥 New clips daily — follow for more wild moments.\n\n"
-                            "YouTube Shorts should exclude hashtags and the final CTA line.\n"
-                        )
-                    },
+                    {"role": "system", "content": "Generate catchy, platform-optimized captions for TikTok, Instagram Reels, Facebook Reels, YouTube Shorts, Twitter/X, and Snapchat. Include niche, viral, brand, and character-specific hashtags. Return JSON with keys for each platform: caption and hashtags as lists."},
                     {"role": "user", "content": user_input}
                 ]
             )
+            import json
+            raw_result = response.choices[0].message.content.strip()
 
-            result = response.choices[0].message.content.strip()
-            st.success("✨ Captions Ready!")
-            st.text_area("📝 Copy & Paste All Platforms", value=result, height=350)
+            # Parse JSON result safely
+            try:
+                platforms_data = json.loads(raw_result)
+            except Exception:
+                st.error("⚠️ Failed to parse AI response. Make sure AI returns JSON.")
+                st.text_area("Raw AI output", raw_result, height=300)
+                st.stop()
 
-            # Parse result by platform and save horizontally as one row
-            # Assuming result format:
-            # [Caption]
-            #
-            # [Hashtags]
-            #
-            # CTA line (except YouTube Shorts)
-            #
-            # (then next platform...)
+            # Format captions for each platform
+            formatted_captions = {}
+            for platform in IDEAL_HASHTAG_COUNTS.keys():
+                if platform in platforms_data:
+                    cap = platforms_data[platform].get("caption", "")
+                    tags = platforms_data[platform].get("hashtags", [])
+                    formatted_captions[platform] = format_caption(cap, tags, platform)
+                else:
+                    formatted_captions[platform] = ""
 
-            platforms = ["TikTok", "Instagram", "Facebook", "YouTube Shorts", "Twitter", "Snapchat"]
+            # Display captions for copy-pasting
+            for platform, caption_text in formatted_captions.items():
+                st.subheader(platform.capitalize())
+                st.text_area(f"{platform.capitalize()} Caption", caption_text, height=150)
 
-            # Split result by double newlines between platforms (heuristic)
-            sections = [sec.strip() for sec in result.split("\n\n\n") if sec.strip()]
+            # Save one row with all platform captions horizontally
+            sheet.append_row([formatted_captions[p] for p in IDEAL_HASHTAG_COUNTS.keys()])
 
-            # Prepare a row with one cell per platform
-            row = []
-            for i, sec in enumerate(sections):
-                # Replace triple newlines inside sections by double newlines for neatness
-                cell_text = sec.replace("\n\n\n", "\n\n")
-                row.append(cell_text)
-
-            # Pad row if fewer than platforms detected
-            while len(row) < len(platforms):
-                row.append("")
-
-            # Append row horizontally
-            sheet.append_row(row)
+            st.success("✨ Captions saved to Google Sheets!")
 
         except Exception as e:
             st.error(f"⚠️ Error: {e}")
