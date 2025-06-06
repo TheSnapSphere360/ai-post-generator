@@ -26,7 +26,7 @@ try:
 except Exception as e:
     st.error(f"❌ Could not fetch sheets: {e}")
 
-# Try to open the specific Google Sheet by ID and worksheet by name
+# Try to open the spreadsheet by key (more reliable than by title)
 try:
     sheet = sheet_client.open_by_key("1Iw6Vn3qG-gFwYZn_fwuapHOe3-vcSToMsFYQl1y_Xvw").worksheet("Captions")
 except Exception as e:
@@ -47,8 +47,14 @@ if st.button("✨ Generate Social Captions"):
             response = client.chat.completions.create(
                 model="gpt-3.5-turbo",
                 messages=[
-                    {"role": "system", "content": "Generate catchy, platform-optimized captions for TikTok, Instagram Reels, Facebook Reels, YouTube Shorts, Twitter/X, and Snapchat. Add niche, viral, brand, and character-specific hashtags. Each platform's output should follow this format:\n\n[Caption]\n\n[Hashtags]\n\n🔥 New clips daily — follow for more wild moments. (only for TikTok, Instagram, Facebook)\n\nYouTube Shorts should exclude hashtags and end line."},
-                    {"role": "user", "content": f"{user_input}"}
+                    {"role": "system", "content": (
+                        "Generate catchy, platform-optimized captions for TikTok, Instagram Reels, Facebook Reels, "
+                        "YouTube Shorts, Twitter/X, and Snapchat. Add niche, viral, brand, and character-specific hashtags. "
+                        "Each platform's output should follow this format:\n\n"
+                        "[TikTok]\n[Caption]\n\n[Hashtags]\n\n🔥 New clips daily — follow for more wild moments.\n\n"
+                        "[Instagram]\n[...]\n\n[YouTube Shorts]\n[Caption only — no hashtags or final line]"
+                    )},
+                    {"role": "user", "content": user_input}
                 ]
             )
 
