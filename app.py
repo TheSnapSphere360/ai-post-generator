@@ -32,7 +32,7 @@ st.markdown("Upload a clip transcript or paste a summary. Get ready-to-post capt
 
 user_input = st.text_area("📝 Paste Opus Clip Transcript or Summary", height=250)
 
-# Ideal hashtags counts for platforms
+# Ideal hashtags counts for platforms (ideal, not max)
 IDEAL_HASHTAGS = {
     "tiktok": 7,
     "instagram": 10,
@@ -45,22 +45,13 @@ IDEAL_HASHTAGS = {
 CTA_LINE = "🔥 New clips daily — follow for more wild moments."
 
 def build_caption_block(caption, hashtags, cta):
-    """
-    Compose final caption block:
-    Caption
-    (blank line)
-    Hashtags (all in one line)
-    (blank line)
-    CTA
-    """
     hashtags_line = " ".join(hashtags)
-    # If no caption or hashtags, just return empty string
     if not caption.strip() and not hashtags_line.strip():
         return ""
+    # caption + 1 blank line + hashtags line + 1 blank line + cta
     return f"{caption.strip()}\n\n{hashtags_line.strip()}\n\n{cta.strip()}"
 
 def truncate_hashtags(hashtags_str, max_count):
-    # Split hashtags by whitespace, keep max_count hashtags
     tags = hashtags_str.strip().split()
     return tags[:max_count]
 
@@ -89,12 +80,9 @@ if st.button("✨ Generate Social Captions"):
                 ]
             )
             raw_content = response.choices[0].message.content.strip()
-            st.text_area("Raw OpenAI Response (for debugging)", value=raw_content, height=250)
-
             data = json.loads(raw_content)
 
             row = []
-            # Platforms in order, one column each
             platforms_order = ["tiktok", "instagram", "facebook", "twitter", "snapchat", "youtube"]
             for platform in platforms_order:
                 if platform in data:
@@ -105,14 +93,12 @@ if st.button("✨ Generate Social Captions"):
                     block = build_caption_block(cap, tags_list, cta)
                     row.append(block)
                 else:
-                    row.append("")  # empty if platform missing
+                    row.append("")
 
-            # Append horizontally to sheet starting at row 2
             sheet.append_row(row)
-
             st.success("✅ Captions generated and saved to Google Sheets!")
 
-            # Show user-friendly captions output separated by platform
+            # Show final output without raw debug info
             st.text_area("🎉 Captions Output (copy from here)", value="\n\n---\n\n".join(row), height=300)
 
         except json.JSONDecodeError as jde:
