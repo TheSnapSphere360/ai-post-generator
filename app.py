@@ -4,6 +4,7 @@ from openai import OpenAI
 from dotenv import load_dotenv
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
+import re
 
 # Load environment variables
 load_dotenv()
@@ -19,6 +20,9 @@ sheet_client = gspread.authorize(creds)
 
 # Open spreadsheet and worksheet
 sheet = sheet_client.open("TheSnapSphere360").worksheet("Captions")
+
+# Define platforms to track
+platforms = ["TikTok", "Instagram", "Facebook", "YouTube Shorts", "Twitter", "Snapchat"]
 
 # Streamlit UI
 st.title("📲 AI Social Post Generator for Opus Clips")
@@ -38,9 +42,10 @@ if st.button("✨ Generate Social Captions"):
                     {
                         "role": "system",
                         "content": (
-                            "Generate short-form video captions for the following platforms, each labeled clearly: "
-                            "TikTok, Instagram, Facebook, YouTube Shorts, Twitter, and Snapchat. Format each like this:\n\n"
-                            "**TikTok**:\n[Caption]\n\n**Instagram**:\n[Caption] ..."
+                            "Generate short-form video captions for TikTok, Instagram, Facebook, YouTube Shorts, Twitter, and Snapchat. "
+                            "Clearly label each section using this format exactly:\n"
+                            "**TikTok**:\n...\n\n**Instagram**:\n...\n\n..."
+                            "Only use these platform labels, and do not repeat or nest them."
                         )
                     },
                     {"role": "user", "content": user_input}
@@ -51,20 +56,14 @@ if st.button("✨ Generate Social Captions"):
             st.success("✨ Captions Ready!")
             st.text_area("📤 Copy & Paste", value=result, height=400)
 
-            # Parse and extract captions per platform
-            platforms = ["TikTok", "Instagram", "Facebook", "YouTube Shorts", "Twitter", "Snapchat"]
+            # Extract each caption using regex
             row_data = []
             for platform in platforms:
-                if f"**{platform}**:" in result:
-                    part = result.split(f"**{platform}**:")[1]
-                    next_parts = [result.split(f"**{p}**:")[1] for p in platforms if f"**{p}**:" in result and result.find(f"**{p}**:") > result.find(f"**{platform}**:")]
-                    end_index = result.find(next_parts[0]) if next_parts else None
-                    caption = part[:end_index].strip() if end_index else part.strip()
-                    row_data.append(caption)
-                else:
-                    row_data.append("")
+                match = re.search(rf"\*\*{platform}\*\*:\s*(.*?)(?=\n\*\*|\Z)", result, re.DOTALL)
+                caption = match.group(1).strip() if match else ""
+                row_data.append(caption)
 
-            # Save to sheet horizontally
+            # Save clean row to sheet
             sheet.append_row(row_data)
 
         except Exception as e:
