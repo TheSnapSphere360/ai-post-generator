@@ -5,19 +5,17 @@ from openai import OpenAI
 from dotenv import load_dotenv
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
+import re
 
 load_dotenv()
 
-# Initialize OpenAI client
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
-# Google Sheets auth with service account JSON from Streamlit secrets
 scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
 creds_dict = st.secrets["gcp_service_account"]
 creds = ServiceAccountCredentials.from_json_keyfile_dict(dict(creds_dict), scope)
 sheet_client = gspread.authorize(creds)
 
-# Open your sheet by ID and worksheet name
 SPREADSHEET_ID = "1Iw6Vn3qG-gFwYZn_fwuapHOe3-vcSToMsFYQl1y_Xvw"
 WORKSHEET_NAME = "Captions"
 
@@ -32,7 +30,6 @@ st.markdown("Upload a clip transcript or paste a summary. Get ready-to-post capt
 
 user_input = st.text_area("📝 Paste Opus Clip Transcript or Summary", height=250)
 
-# Ideal hashtags counts for platforms (ideal, not max)
 IDEAL_HASHTAGS = {
     "tiktok": 7,
     "instagram": 10,
@@ -43,13 +40,28 @@ IDEAL_HASHTAGS = {
 }
 
 CTA_LINE = "🔥 New clips daily — follow for more wild moments."
+CTA_PLATFORMS = {"tiktok", "instagram", "facebook"}
 
-def build_caption_block(caption, hashtags, cta):
-    hashtags_line = " ".join(hashtags)
-    if not caption.strip() and not hashtags_line.strip():
-        return ""
-    # caption + 1 blank line + hashtags line + 1 blank line + cta
-    return f"{caption.strip()}\n\n{hashtags_line.strip()}\n\n{cta.strip()}"
+def remove_hashtags_from_caption(caption, hashtags_str):
+    # Extract hashtags from string
+    hashtags = set(re.findall(r"#\w+", hashtags_str))
+    # Remove hashtags from caption (case-insensitive)
+    for tag in hashtags:
+        caption = re.sub(re.escape(tag), "", caption, flags=re.IGNORECASE)
+    # Clean extra spaces
+    caption = re.sub(r"\s{2,}", " ", caption).strip()
+    return caption
+
+def build_caption_block(caption, hashtags, cta="", include_cta=True):
+    hashtags_line = " ".join(hashtags).strip()
+    parts = []
+    if caption:
+        parts.append(caption.strip())
+    if hashtags_line:
+        parts.append(hashtags_line)
+    if include_cta and cta:
+        parts.append(cta.strip())
+    return "\n\n".join(parts)
 
 def truncate_hashtags(hashtags_str, max_count):
     tags = hashtags_str.strip().split()
@@ -89,8 +101,15 @@ if st.button("✨ Generate Social Captions"):
                     cap = data[platform].get("caption", "")
                     tags_str = data[platform].get("hashtags", "")
                     cta = data[platform].get("cta", CTA_LINE)
+
+                    # Remove hashtags from caption so no duplicates
+                    cap_clean = remove_hashtags_from_caption(cap, tags_str)
+
                     tags_list = truncate_hashtags(tags_str, IDEAL_HASHTAGS.get(platform, 5))
-                    block = build_caption_block(cap, tags_list, cta)
+
+                    include_cta = platform in CTA_PLATFORMS
+
+                    block = build_caption_block(cap_clean, tags_list, cta if include_cta else "", include_cta)
                     row.append(block)
                 else:
                     row.append("")
@@ -98,7 +117,6 @@ if st.button("✨ Generate Social Captions"):
             sheet.append_row(row)
             st.success("✅ Captions generated and saved to Google Sheets!")
 
-            # Show final output without raw debug info
             st.text_area("🎉 Captions Output (copy from here)", value="\n\n---\n\n".join(row), height=300)
 
         except json.JSONDecodeError as jde:
