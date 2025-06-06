@@ -16,7 +16,22 @@ scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/au
 creds_dict = st.secrets["gcp_service_account"]
 creds = ServiceAccountCredentials.from_json_keyfile_dict(dict(creds_dict), scope)
 sheet_client = gspread.authorize(creds)
-sheet = sheet_client.open("TheSnapSphere360 Captions").worksheet("Captions")
+
+# Debug: List all spreadsheets the service account can access
+st.write("🔍 Sheets available to service account:")
+try:
+    available_sheets = sheet_client.openall()
+    for s in available_sheets:
+        st.write(f"📄 {s.title}")
+except Exception as e:
+    st.error(f"❌ Could not fetch sheets: {e}")
+
+# Try to open target sheet
+try:
+    sheet = sheet_client.open("TheSnapSphere360 Captions").worksheet("Captions")
+except Exception as e:
+    st.error(f"❌ Error opening sheet or worksheet: {e}")
+    st.stop()
 
 # Streamlit UI
 st.title("📲 AI Social Post Generator for Opus Clips")
@@ -46,3 +61,4 @@ if st.button("✨ Generate Social Captions"):
 
         except Exception as e:
             st.error(f"⚠️ Error: {e}")
+
